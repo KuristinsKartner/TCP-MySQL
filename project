@@ -1,0 +1,136 @@
+using System;
+using System.Text;
+using System.Data;
+using System.Threading.Tasks;
+using static System.Console;
+using System.Net.Sockets;
+using System.Net;
+using System.Data.SqlClient;
+
+namespace TCP___ado
+{
+    class Program
+    {
+        const int parameters = 4; // first, sec, third, four
+        const int port = 8888;
+        static public void sql_save(string my_str, string side_number, int new_tool, int shift, string date, SqlConnection connection)
+        {
+            using (SqlCommand cmd = new SqlCommand("INSERT INTO dbo.SPK_ONE (my_str, side_number, new_tool, shift, date)" +
+                                        "VALUES (@my_str, @side_number, @new_tool, @shift, @date)", connection))
+            {
+                cmd.Parameters.AddWithValue("@my_str", my_str);
+                cmd.Parameters.AddWithValue("@side_number", side_number);
+                cmd.Parameters.AddWithValue("@new_tool", new_tool);
+                cmd.Parameters.AddWithValue("@shift", shift);
+                cmd.Parameters.AddWithValue("@date", date);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        static public void actionwithstring(string str, ref string my_str, ref string side_number, ref int new_tool, ref int shift, ref string date, string ch)
+        {
+            DateTime localDate = DateTime.Now;
+
+            my_str = str.Substring(0, str.IndexOf(ch));
+            str = str.Substring(str.IndexOf(ch) + 1);
+            side_number = str.Substring(0, 4);
+            str = str.Substring(4);
+            new_tool = Int32.Parse(str.Substring(0, 1));
+            shift = (localDate.Hour < 16) ? 0 : 1;
+            date = localDate.ToString("yyyy-MM-dd");
+        }
+
+
+        static async Task Main(string[] args)
+        {
+            string connectionString = "Server=(localdb)\\mssqllocaldb;Database=toSplav;Trusted_Connection=True;";
+            TcpListener server = null;
+            // Создание подключения
+            SqlConnection connection = new SqlConnection(connectionString);
+            try
+            {
+                // Открываем подключение на сервер
+                await connection.OpenAsync();
+
+                WriteLine("Подключение открыто");
+
+                try
+                {
+                    IPAddress localAddr = IPAddress.Parse("192.168.0.110");
+                    server = new TcpListener(localAddr, port);
+                    // запуск слушателя
+                    server.Start();
+
+                    WriteLine("Ожидание подключений... ");
+                    // Подключение клиента
+                    TcpClient client = server.AcceptTcpClient();
+                    WriteLine("Подключен клиент. Выполнение запроса...");
+                    NetworkStream stream = client.GetStream();
+                    StringBuilder myCompleteMessage = new StringBuilder();
+
+                    string mesfromSPK = "", my_str = "", ch = ";", side_number = "", date = "", check_string="";
+                    int shift = 0, new_tool = 0;
+
+                    while (true)
+                    {
+
+                        if (stream.CanRead)
+                        {
+                            byte[] myReadBuffer = new byte[255];
+                            int numberOfBytesRead = 0;
+
+                            myCompleteMessage.Clear();
+                            numberOfBytesRead = stream.Read(myReadBuffer, 0, myReadBuffer.Length);
+                            myCompleteMessage.AppendFormat("{0}", Encoding.ASCII.GetString(myReadBuffer, 0, numberOfBytesRead));
+                            if (myCompleteMessage.ToString() != mesfromSPK)
+                            {
+                                mesfromSPK = myCompleteMessage.ToString();
+                                try
+                                {
+
+                                    actionwithstring(mesfromSPK, ref my_str, ref side_number, ref new_tool, ref shift, ref date, ch);
+                                    if (check_string != my_str)
+                                    {
+                                        check_string = my_str;
+                                        sql_save(my_str, side_number, new_tool, shift, date, connection);
+                                        WriteLine(my_str);
+                                    }
+                                }
+                                catch (Exception e)
+                                {
+                                    WriteLine("Ошибка: " + e.Message);
+                                }
+                            }
+                        }
+                    }
+
+                }
+                catch (Exception e)
+                {
+                    WriteLine(e.Message);
+                }
+                finally
+                {
+
+                    if (server != null)
+                        server.Stop();
+                }
+
+            }
+            catch (SqlException ex)
+            {
+                WriteLine(ex.Message);
+            }
+            finally
+            {
+                // если подключение открыто
+                if (connection.State == ConnectionState.Open)
+                {
+                    // закрываем подключение
+                    connection.Close();
+                    WriteLine("Подключение закрыто...");
+                }
+            }
+        }
+    }
+}
